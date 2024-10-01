@@ -8,7 +8,7 @@ export interface IFileSystem {
   open(fileName: string): number;
   close(fd: number): void;
   seek(fd: number, offset: number): void;
-  read(fd: number, size: number): Buffer;
+  read(fd: number, size: number): void;
   write(fd: number, data: Buffer): void;
   link(oldName: string, newName: string): void;
   unlink(fileName: string): void;

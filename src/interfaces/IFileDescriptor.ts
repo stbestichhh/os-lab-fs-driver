@@ -6,4 +6,6 @@ export interface IFileDescriptor {
   hardLinks: number;
   size: number;
   blockMap: number[];
+  nblock: number;
+  isOpen?: boolean;
 }

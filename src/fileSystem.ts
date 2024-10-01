@@ -28,7 +28,7 @@ export class FileSystem implements IFileSystem {
     }
 
     const descriptor = this.fileDescriptors[entry.descriptorIndex];
-    this.logger.info(`id=${descriptor.id}, type=${descriptor.fileType}, nlink=${descriptor.hardLinks}, size=${descriptor.size}, nblock=${descriptor.blockMap.length}`);
+    this.logger.info(`id=${descriptor.id}, type=${descriptor.fileType}, nlink=${descriptor.hardLinks}, size=${descriptor.size}, nblock=${descriptor.nblock}`);
   }
 
   ls(): void {
@@ -45,7 +45,7 @@ export class FileSystem implements IFileSystem {
     }
 
     const id = Math.floor(Math.random() * 1000);
-    this.fileDescriptors[fdIndex] = new FileDescriptor({ id, fileType: 'reg', hardLinks: 1, size: 0, blockMap: [] });
+    this.fileDescriptors[fdIndex] = new FileDescriptor({ id, fileType: 'reg', hardLinks: 1, size: 0, blockMap: [], nblock: 0 });
 
     this.rootDirectory.push({ fileName, descriptorIndex: fdIndex });
   }
@@ -64,6 +64,7 @@ export class FileSystem implements IFileSystem {
       descriptorIndex: fdIndex,
       position: 0,
     }
+    this.fileDescriptors[fdIndex].isOpen = true;
 
     this.logger.info(`fd = ${fdIndex}`);
     return openFd;
@@ -74,8 +75,13 @@ export class FileSystem implements IFileSystem {
       throw new FileSystemException('invalid descriptor');
     }
 
+    const file = this.openFiles[fd];
+    const descriptor = this.fileDescriptors[file.descriptorIndex];
+    if (descriptor.hardLinks === 0) {
+      this.fileDescriptors.splice(file.descriptorIndex, 1);
+    }
+
     this.openFiles[fd] = null;
-    this.logger.info(`closed ${fd} descriptor`);
   }
 
   seek(fd: number, offset: number): void {
@@ -86,7 +92,7 @@ export class FileSystem implements IFileSystem {
     this.openFiles[fd].position = offset;
   }
 
-  read(fd: number, size: number): Buffer {
+  read(fd: number, size: number) {
     const file = this.openFiles[fd];
     if (!file) {
       throw new FileSystemException('invalid descriptor');
@@ -99,14 +105,17 @@ export class FileSystem implements IFileSystem {
       const blockIndex = Math.floor(file.position / this.BLOCK_SIZE);
       const blockOffset = file.position % this.BLOCK_SIZE;
 
-      const block = this.storage[descriptor.blockMap[blockIndex]];
-      data = Buffer.concat([data, block.slice(blockOffset)]);
+      if (descriptor.blockMap[blockIndex] !== undefined) {
+        const block = this.storage[descriptor.blockMap[blockIndex]];
+        data = Buffer.concat([data, block.subarray(blockOffset)]);
+      } else {
+        data = Buffer.concat([data, Buffer.alloc(this.BLOCK_SIZE - blockOffset)]);
+      }
       file.position += this.BLOCK_SIZE - blockOffset;
     }
 
     const readResult = data.slice(0, size);
     this.logger.info(readResult.toString());
-    return readResult;
   }
 
   write(fd: number, data: Buffer): void {
@@ -116,11 +125,12 @@ export class FileSystem implements IFileSystem {
     }
 
     const descriptor = this.fileDescriptors[file.descriptorIndex];
-    const remainingData = data;
+    let remainingData = data;
 
     while(remainingData.length > 0) {
-      const blockIndex = Math.floor(file.position / this.BLOCK_SIZE);
-      if (descriptor.blockMap[blockIndex] === undefined) {
+      const blockIndex = Math.round(file.position / this.BLOCK_SIZE);
+
+      if (!descriptor.blockMap[blockIndex]) {
         const freeBlockIndex = this.bitmap.indexOf(false);
         if (freeBlockIndex === -1) {
           throw new FileSystemException('no free blocks');
@@ -135,16 +145,18 @@ export class FileSystem implements IFileSystem {
 
       remainingData.copy(block, blockOffset, 0, bytesToWrite);
       file.position += bytesToWrite;
-      remainingData.slice(bytesToWrite);
+      remainingData = remainingData.slice(bytesToWrite);
     }
 
     descriptor.size = Math.max(descriptor.size, file.position);
+    descriptor.nblock = descriptor.blockMap.filter((block) => block !== undefined).length;
+    this.logger.info(data.toString());
   }
 
   link(oldName: string, newName: string): void {
     const entry = this.rootDirectory.find((e) => e.fileName === oldName);
     if (!entry) {
-      throw new FileSystemException(`${oldName}  not found`);
+      throw new FileSystemException(`${oldName} not found`);
     }
 
     this.rootDirectory.push({
@@ -166,7 +178,10 @@ export class FileSystem implements IFileSystem {
       for (const blockIndex of this.fileDescriptors[descriptorIndex].blockMap) {
         this.bitmap[blockIndex] = false;
       }
-      this.fileDescriptors.splice(descriptorIndex, 1);
+
+      if (!this.fileDescriptors[descriptorIndex]?.isOpen) {
+        this.fileDescriptors.splice(descriptorIndex, 1);
+      }
     }
 
     this.rootDirectory.splice(entryIndex, 1);
@@ -175,7 +190,7 @@ export class FileSystem implements IFileSystem {
   truncate(fileName: string, size: number): void {
     const entry = this.rootDirectory.find((e) => e.fileName === fileName);
     if (!entry) {
-      throw new FileSystemException(`${oldName}  not found`);
+      throw new FileSystemException(`${fileName}  not found`);
     }
 
     const descriptor = this.fileDescriptors[entry.descriptorIndex];
