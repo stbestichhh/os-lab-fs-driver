@@ -4,6 +4,8 @@
   "description": "File system driver",
   "main": "index.ts",
   "scripts": {
+    "start": "ts-node src/index.ts",
+    "start:watch": "nodemon src/index.ts",
     "test": "npx stest"
   },
   "repository": {
@@ -22,5 +24,10 @@
     "ts-node": "^10.9.2",
     "tsc": "^2.0.4",
     "typescript": "^5.6.2"
+  },
+  "dependencies": {
+    "nodemon": "^3.1.7",
+    "pino": "^9.4.0",
+    "pino-pretty": "^11.2.2"
   }
 }
