@@ -1,0 +1,26 @@
+{
+  "name": "os-lab-fs-driver",
+  "version": "0.0.1",
+  "description": "File system driver",
+  "main": "index.ts",
+  "scripts": {
+    "test": "npx stest"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/stbestichhh/os-lab-fs-driver.git"
+  },
+  "author": "Kiril Yakymchuk <stbestich@gmail.com>",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/stbestichhh/os-lab-fs-driver/issues"
+  },
+  "homepage": "https://github.com/stbestichhh/os-lab-fs-driver#readme",
+  "devDependencies": {
+    "@stlib/testing": "^1.1.0",
+    "@types/node": "^22.7.4",
+    "ts-node": "^10.9.2",
+    "tsc": "^2.0.4",
+    "typescript": "^5.6.2"
+  }
+}
