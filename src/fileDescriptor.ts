@@ -1,4 +1,4 @@
-import { FileType, IFileDescriptor } from "./interfaces";
+import { FileType, IDirectoryEntry, IFileDescriptor } from './interfaces';
 
 export class FileDescriptor implements IFileDescriptor {
   id: number;
@@ -8,16 +8,18 @@ export class FileDescriptor implements IFileDescriptor {
   blockMap: number[];
   nblock: number;
   isOpen?: boolean;
+  contents?: IDirectoryEntry[] | string;
 
   constructor(
     data: IFileDescriptor
   ) {
-    const { id, fileType, hardLinks, size, blockMap, nblock } = data;
+    const { id, fileType, hardLinks, size, blockMap, nblock, contents } = data;
     this.id = id;
     this.fileType = fileType;
     this.hardLinks = hardLinks;
     this.size = size;
     this.blockMap = blockMap;
     this.nblock = nblock;
+    this.contents = contents;
   }
 }

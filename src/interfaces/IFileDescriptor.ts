@@ -1,4 +1,6 @@
-export type FileType = 'reg' | 'dir';
+import { IDirectoryEntry } from './IDirectoryEntry';
+
+export type FileType = 'reg' | 'dir' | 'sym';
 
 export interface IFileDescriptor {
   id: number;
@@ -8,4 +10,5 @@ export interface IFileDescriptor {
   blockMap: number[];
   nblock: number;
   isOpen?: boolean;
+  contents?: IDirectoryEntry[] | string;
 }
