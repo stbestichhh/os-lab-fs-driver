@@ -1,5 +1,5 @@
 import { Logger } from 'pino';
-import { IFileDescriptor, IDirectoryEntry, IOpenFile, IFileSystem } from './interfaces';
+import { IDirectoryEntry, IFileDescriptor, IFileSystem, IOpenFile } from './interfaces';
 import { FileSystemException } from './fsException';
 import { FileDescriptor } from './fileDescriptor';
 
@@ -11,18 +11,190 @@ export class FileSystem implements IFileSystem {
   private fileDescriptors: IFileDescriptor[] = []
   private rootDirectory: IDirectoryEntry[] = [];
   private openFiles: (IOpenFile | null)[] = [];
+  private currentWorkingDirectory: string = '/';
 
   constructor(private readonly logger: Logger) {}
 
+  private resolvePath(pathname: string) {
+    const parts = pathname.split('/').filter(Boolean);
+    let directory = this.rootDirectory;
+    let name = parts.pop();
+
+    if (pathname.startsWith('/')) {
+      directory = this.rootDirectory;
+    } else {
+      directory = (this.findDirectory(this.currentWorkingDirectory)?.contents ?? []) as IDirectoryEntry[];
+    }
+
+    for (const part of parts) {
+      const entry = directory.find(e => e.fileName === part);
+      if (!entry || this.fileDescriptors[entry.descriptorIndex]?.fileType !== 'dir') {
+        throw new FileSystemException(`Directory ${part} not found`);
+      }
+      directory = (this.fileDescriptors[entry.descriptorIndex]?.contents ?? []) as IDirectoryEntry[];
+    }
+
+    return { parent: directory, name: name ?? '' };
+  }
+
+  private findDirectory(path: string) {
+    const { parent, name } = this.resolvePath(path);
+    const entry = parent.find(e => e.fileName === name);
+    if (!entry) return null;
+    return this.fileDescriptors[entry.descriptorIndex];
+  }
+
+  mkdir(pathname: string) {
+    const { parent, name } = this.resolvePath(pathname);
+    if (parent.find(e => e.fileName === name)) {
+      throw new FileSystemException(`Directory ${name} already exists`);
+    }
+
+    const fdIndex = this.fileDescriptors.findIndex(fd => fd === null);
+    if (fdIndex === -1) {
+      throw new FileSystemException(`No available descriptors found`);
+    }
+
+    const descriptor = new FileDescriptor({
+      id: Math.floor(Math.random() * 1000),
+      fileType: 'dir',
+      hardLinks: 2,
+      size: 0,
+      blockMap: [],
+      nblock: 0,
+      contents: [],
+    });
+    this.fileDescriptors[fdIndex] = descriptor;
+
+    parent.push({ fileName: name, descriptorIndex: fdIndex });
+    (descriptor.contents as IDirectoryEntry[]).push(
+      { fileName: '.', descriptorIndex: fdIndex },
+      { fileName: '..', descriptorIndex: parent[0]?.descriptorIndex || 0 },
+    );
+
+    this.logger.info(`Directory ${name} created`);
+  }
+
+  rmdir(pathname: string) {
+    const { parent, name } = this.resolvePath(pathname);
+    const entryIndex = parent.findIndex(e => e.fileName === name);
+
+    if (entryIndex === -1) {
+      throw new FileSystemException(`Directory not found`);
+    }
+
+    const descriptor = this.fileDescriptors[parent[entryIndex].descriptorIndex];
+    if (!descriptor || descriptor.fileType !== 'dir') {
+      throw new FileSystemException(`Not a directory`);
+    }
+
+    if (descriptor.contents && descriptor.contents?.length > 2) {
+      throw new FileSystemException(`Directory is not empty`);
+    }
+
+    parent.slice(entryIndex, 1);
+    // @ts-ignore
+    this.fileDescriptors[parent[entryIndex].descriptorIndex] = null;
+    this.logger.info(`Directory ${name} removed`);
+  }
+
+  cd(pathname: string) {
+    const directory = this.findDirectory(pathname);
+    if (!directory || directory.fileType !== 'dir') {
+      throw new FileSystemException(`Not a directory`);
+    }
+
+    this.currentWorkingDirectory = pathname;
+    this.logger.info(`Changed directory to ${pathname}`);
+  }
+
+  symlink(target: string, linkname: string) {
+    const { parent, name } = this.resolvePath(linkname);
+
+    if (parent.find(e => e.fileName === name)) {
+      throw new FileSystemException(`Link ${name} already exists`);
+    }
+
+    const fdIndex = this.fileDescriptors.findIndex(fd => fd === null);
+    if (fdIndex === -1) {
+      throw new FileSystemException(`No available descriptors`);
+    }
+
+    this.fileDescriptors[fdIndex] = new FileDescriptor({
+      id: Math.floor(Math.random() * 1000),
+      fileType: 'sym',
+      hardLinks: 1,
+      size: target.length,
+      blockMap: [],
+      nblock: 0,
+      contents: target,
+    });
+
+    parent.push({ fileName: name, descriptorIndex: fdIndex });
+    this.logger.info(`Symbolic link ${name} created pointing to ${target}`);
+  }
+
+  private resolveSymlink(pathname: string, maxDepth = 10) {
+    let resolvedPath = pathname;
+    let depth = 0;
+
+    while (depth < maxDepth) {
+      const { parent, name } = this.resolvePath(resolvedPath);
+      const entry = parent.find(e => e.fileName === name);
+      if (!entry) {
+        return resolvedPath;
+      }
+
+      const descriptor = this.fileDescriptors[entry.descriptorIndex];
+      if (descriptor.fileType !== 'sym') {
+        return resolvedPath;
+      }
+
+      const target = descriptor.contents as string;
+      resolvedPath = target.startsWith('/') ? target : this.currentWorkingDirectory + '/' + target;
+      depth++;
+    }
+
+    throw new FileSystemException(`Too many symbolic link levels`);
+  }
+
   mkfs(descriptorsAmount: number): void {
     this.fileDescriptors = Array(descriptorsAmount).fill(null);
-    this.rootDirectory = [];
     this.bitmap.fill(false);
+
+    const rootDescriptorIndex = 0;
+    this.fileDescriptors[rootDescriptorIndex] = new FileDescriptor({
+      id: 1,
+      fileType: 'dir',
+      hardLinks: 2,
+      size: 0,
+      blockMap: [],
+      nblock: 0,
+      contents: [
+        {
+          fileName: '.', descriptorIndex: rootDescriptorIndex,
+        },
+        {
+          fileName: '..', descriptorIndex: rootDescriptorIndex,
+        }
+      ],
+    });
+    this.rootDirectory.push({
+      fileName: '.', descriptorIndex: rootDescriptorIndex,
+    });
+    this.rootDirectory.push({
+      fileName: '..', descriptorIndex: rootDescriptorIndex,
+    });
+
+    this.currentWorkingDirectory = '/';
     this.logger.info(`fs initialized with ${descriptorsAmount} descriptors`);
   }
 
   stat(fileName: string): void {
-    const entry = this.rootDirectory.find((e) => e.fileName === fileName);
+    const resolvedPath = this.resolveSymlink(fileName);
+    const { parent, name } = this.resolvePath(resolvedPath);
+    const entry = parent.find((e) => e.fileName === name);
+
     if (!entry) {
       throw new FileSystemException('file not found');
     }
@@ -31,14 +203,36 @@ export class FileSystem implements IFileSystem {
     this.logger.info(`id=${descriptor.id}, type=${descriptor.fileType}, nlink=${descriptor.hardLinks}, size=${descriptor.size}, nblock=${descriptor.nblock}`);
   }
 
-  ls(): void {
-    this.rootDirectory.forEach((entry) => {
+  ls(pathname?: string): void {
+    const resolvedPath = this.resolveSymlink(pathname || this.currentWorkingDirectory);
+    const directory = resolvedPath === '/' ? this.resolvePath(resolvedPath).parent : this.findDirectory(resolvedPath)?.contents;
+    if (!directory || !Array.isArray(directory)) {
+      throw new FileSystemException(`Not a directory`);
+    }
+
+    const maxNameLength = Math.max(...directory.map(e => e.fileName.length));
+
+    for (const e of directory) {
+      const entry = e as IDirectoryEntry;
       const descriptor = this.fileDescriptors[entry.descriptorIndex];
-      this.logger.info(`${entry.fileName}\t=> ${descriptor.fileType}, ${descriptor.id}`);
-    })
+      if (descriptor === null) continue;
+      const padName = entry.fileName.padEnd(maxNameLength, ' ');
+      const info = `${padName}\t=> ${descriptor.fileType}, ${descriptor.id}`;
+      if (descriptor.fileType === 'sym') {
+        this.logger.info(`${info} -> ${descriptor.contents}`);
+      } else {
+        this.logger.info(info);
+      }
+    }
   }
 
   create(fileName: string): void {
+    const { parent, name } = this.resolvePath(this.resolveSymlink(fileName));
+
+    if (parent.find(e => e.fileName === name)) {
+      throw new FileSystemException(`File ${name} already exists`);
+    }
+
     const fdIndex = this.fileDescriptors.findIndex((fd) => fd === null);
     if (fdIndex === -1) {
       throw new FileSystemException('no available file descriptors');
@@ -47,11 +241,16 @@ export class FileSystem implements IFileSystem {
     const id = Math.floor(Math.random() * 1000);
     this.fileDescriptors[fdIndex] = new FileDescriptor({ id, fileType: 'reg', hardLinks: 1, size: 0, blockMap: [], nblock: 0 });
 
-    this.rootDirectory.push({ fileName, descriptorIndex: fdIndex });
+    parent.push({ fileName: name, descriptorIndex: fdIndex });
+    this.logger.info(`File ${name} created`);
+    // this.rootDirectory.push({ fileName, descriptorIndex: fdIndex });
   }
 
   open(fileName: string): number {
-    const entry = this.rootDirectory.find((e) => e.fileName === fileName);
+    const resolvedPath = this.resolveSymlink(fileName);
+    const { parent, name } = this.resolvePath(resolvedPath);
+    const entry = parent.find(e => e.fileName === name);
+
     if (!entry) {
       throw new FileSystemException(`${fileName} not found`);
     }
@@ -166,25 +365,30 @@ export class FileSystem implements IFileSystem {
   }
 
   unlink(fileName: string): void {
-    const entryIndex = this.rootDirectory.findIndex(e => e.fileName === fileName);
+    const { parent, name } = this.resolvePath(this.resolveSymlink(fileName));
+    const entryIndex = parent.findIndex(e => e.fileName === name);
+
     if (entryIndex === -1) {
-      throw new Error('File not found');
+      throw new FileSystemException(`File not found`);
     }
 
-    const descriptorIndex = this.rootDirectory[entryIndex].descriptorIndex;
-    this.fileDescriptors[descriptorIndex].hardLinks--;
+    const descriptorIndex = parent[entryIndex].descriptorIndex;
+    const descriptor = this.fileDescriptors[descriptorIndex];
+    if (descriptor.fileType === 'dir') {
+      throw new FileSystemException(`Cannot unlink directory`);
+    }
+    descriptor.hardLinks--;
 
-    if (this.fileDescriptors[descriptorIndex].hardLinks === 0) {
-      for (const blockIndex of this.fileDescriptors[descriptorIndex].blockMap) {
+    if (descriptor.hardLinks === 0) {
+      for (const blockIndex of descriptor.blockMap) {
         this.bitmap[blockIndex] = false;
       }
-
-      if (!this.fileDescriptors[descriptorIndex]?.isOpen) {
-        this.fileDescriptors.splice(descriptorIndex, 1);
-      }
+      // @ts-ignore
+      this.fileDescriptors[descriptorIndex] = null;
     }
 
-    this.rootDirectory.splice(entryIndex, 1);
+    parent.splice(entryIndex, 1);
+    this.logger.info(`File ${name} unlinked`);
   }
 
   truncate(fileName: string, size: number): void {
