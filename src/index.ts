@@ -14,14 +14,11 @@ try {
   fs.mkdir('/dir1');
   fs.ls();
   fs.mkdir('/dir1/dir2');
-  fs.ls();
+  fs.create('/dir1/file.txt');
+  fs.ls('/dir1');
   fs.mkdir('/dir2');
-  fs.ls();
-  fs.rmdir('/dir2');
-  fs.ls();
-  fs.cd('/dir1');
-  fs.ls();
-  fs.stat('/dir2');
+  fs.symlink('/dir1', '/dir2/l1');
+  fs.ls('/dir2/l1');
   // fs.create('file.txt');
   // fs.stat('file.txt');
   // fs.ls();
