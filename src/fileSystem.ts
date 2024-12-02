@@ -134,7 +134,7 @@ export class FileSystem implements IFileSystem {
     this.logger.info(`Symbolic link ${name} created pointing to ${target}`);
   }
 
-  private resolveSymlink(pathname: string, maxDepth = 10) {
+  private resolveSymlink(pathname: string, followLastComponent = false, maxDepth = 10) {
     let resolvedPath = pathname;
     let depth = 0;
 
@@ -146,12 +146,12 @@ export class FileSystem implements IFileSystem {
       }
 
       const descriptor = this.fileDescriptors[entry.descriptorIndex];
-      if (descriptor.fileType !== 'sym') {
+      if (descriptor.fileType !== 'sym' || (!followLastComponent && depth === 0)) {
         return resolvedPath;
       }
 
       const target = descriptor.contents as string;
-      resolvedPath = target.startsWith('/') ? target : this.currentWorkingDirectory + '/' + target;
+      resolvedPath = target.startsWith('/') ? target : parent.find(e => e.fileName === '.')?.fileName + '/' + target;
       depth++;
     }
 
@@ -204,7 +204,7 @@ export class FileSystem implements IFileSystem {
   }
 
   ls(pathname?: string): void {
-    const resolvedPath = this.resolveSymlink(pathname || this.currentWorkingDirectory);
+    const resolvedPath = this.resolveSymlink(pathname || this.currentWorkingDirectory, true);
     const directory = resolvedPath === '/' ? this.resolvePath(resolvedPath).parent : this.findDirectory(resolvedPath)?.contents;
     if (!directory || !Array.isArray(directory)) {
       throw new FileSystemException(`Not a directory`);
@@ -247,7 +247,7 @@ export class FileSystem implements IFileSystem {
   }
 
   open(fileName: string): number {
-    const resolvedPath = this.resolveSymlink(fileName);
+    const resolvedPath = this.resolveSymlink(fileName, true);
     const { parent, name } = this.resolvePath(resolvedPath);
     const entry = parent.find(e => e.fileName === name);
 
