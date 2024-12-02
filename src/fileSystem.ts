@@ -99,12 +99,19 @@ export class FileSystem implements IFileSystem {
   }
 
   cd(pathname: string) {
-    const directory = this.findDirectory(pathname);
-    if (!directory || directory.fileType !== 'dir') {
+    const resolvedPath = this.resolveSymlink(pathname);
+    const { parent, name } = this.resolvePath(resolvedPath);
+    const entry = parent.find(e => e.fileName === name);
+    if (!entry) {
+      throw new FileSystemException(`Directory not found`);
+    }
+
+    const descriptor = this.fileDescriptors[entry.descriptorIndex];
+    if (descriptor.fileType !== 'dir') {
       throw new FileSystemException(`Not a directory`);
     }
 
-    this.currentWorkingDirectory = pathname;
+    this.currentWorkingDirectory = resolvedPath;
     this.logger.info(`Changed directory to ${pathname}`);
   }
 
