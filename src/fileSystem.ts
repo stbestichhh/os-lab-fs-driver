@@ -4,6 +4,7 @@ import { FileSystemException } from './fsException';
 import { FileDescriptor } from './fileDescriptor';
 
 export class FileSystem implements IFileSystem {
+  private nextId = 1;
   private readonly BLOCK_SIZE = 512;
   private readonly NUM_BLOCKS = 1000;
   private storage: Buffer[] = Array(this.NUM_BLOCKS).fill(Buffer.alloc(this.BLOCK_SIZE));
@@ -12,8 +13,24 @@ export class FileSystem implements IFileSystem {
   private rootDirectory: IDirectoryEntry[] = [];
   private openFiles: (IOpenFile | null)[] = [];
   private currentWorkingDirectory: string = '/';
+  private freeBlocks: number[] = Array.from({ length: this.NUM_BLOCKS }, (_, i) => i);
 
   constructor(private readonly logger: Logger) {}
+
+  private allocateId(): number {
+    return this.nextId++;
+  }
+
+  private allocateBlock() {
+    if (this.freeBlocks.length === 0) {
+      throw new FileSystemException(`No free blocks available`);
+    }
+    return this.freeBlocks.pop()!;
+  }
+
+  private freeBlock(blockIndex: number) {
+    this.freeBlocks.push(blockIndex);
+  }
 
   private resolvePath(pathname: string) {
     const parts = pathname.split('/').filter(Boolean);
@@ -60,7 +77,7 @@ export class FileSystem implements IFileSystem {
     }
 
     const descriptor = new FileDescriptor({
-      id: Math.floor(Math.random() * 1000),
+      id: this.allocateId(),
       fileType: 'dir',
       hardLinks: 2,
       size: 0,
@@ -133,7 +150,7 @@ export class FileSystem implements IFileSystem {
     }
 
     this.fileDescriptors[fdIndex] = new FileDescriptor({
-      id: Math.floor(Math.random() * 1000),
+      id: this.allocateId(),
       fileType: 'sym',
       hardLinks: 1,
       size: target.length,
@@ -252,7 +269,7 @@ export class FileSystem implements IFileSystem {
       throw new FileSystemException('no available file descriptors');
     }
 
-    const id = Math.floor(Math.random() * 1000);
+    const id = this.allocateId();
     this.fileDescriptors[fdIndex] = new FileDescriptor({ id, fileType: 'reg', hardLinks: 1, size: 0, blockMap: [], nblock: 0, openCount: 0 });
 
     parent.push({ fileName: name, descriptorIndex: fdIndex });
@@ -345,12 +362,7 @@ export class FileSystem implements IFileSystem {
       const blockIndex = Math.round(file.position / this.BLOCK_SIZE);
 
       if (!descriptor.blockMap[blockIndex]) {
-        const freeBlockIndex = this.bitmap.indexOf(false);
-        if (freeBlockIndex === -1) {
-          throw new FileSystemException('no free blocks');
-        }
-        descriptor.blockMap[blockIndex] = freeBlockIndex;
-        this.bitmap[freeBlockIndex] = true;
+        descriptor.blockMap[blockIndex] = this.allocateBlock();
       }
 
       const block = this.storage[descriptor.blockMap[blockIndex]];
@@ -364,7 +376,7 @@ export class FileSystem implements IFileSystem {
 
     descriptor.size = Math.max(descriptor.size, file.position);
     descriptor.nblock = descriptor.blockMap.filter((block) => block !== undefined).length;
-    this.logger.info(data.toString());
+    this.logger.info(`Wrote data to file descriptor: ${data.toString()}`);
   }
 
   link(oldName: string, newName: string): void {
@@ -405,7 +417,7 @@ export class FileSystem implements IFileSystem {
         this.logger.warn(`File ${fileName} is unlinked but still open`);
       } else {
         for (const blockIndex of descriptor.blockMap) {
-          this.bitmap[blockIndex] = false;
+          this.freeBlock(blockIndex);
         }
         // @ts-ignore
         this.fileDescriptors[descriptorIndex] = null;
