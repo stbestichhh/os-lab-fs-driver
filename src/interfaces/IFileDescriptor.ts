@@ -9,6 +9,6 @@ export interface IFileDescriptor {
   size: number;
   blockMap: number[];
   nblock: number;
-  isOpen?: boolean;
+  openCount: number;
   contents?: IDirectoryEntry[] | string;
 }

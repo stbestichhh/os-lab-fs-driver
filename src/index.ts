@@ -11,14 +11,27 @@ const fs = new FileSystem(log);
 
 try {
   fs.mkfs(10);
-  fs.mkdir('/dir1');
-  fs.ls();
-  fs.mkdir('/dir1/dir2');
-  fs.create('/dir1/file.txt');
-  fs.ls('/dir1');
-  fs.mkdir('/dir2');
-  fs.symlink('/dir1', '/dir2/l1');
-  fs.ls('/dir2/l1');
+
+  // fs.create('file1');
+  // const fd = fs.open('file1');
+  // fs.write(fd, Buffer.from('Hello, World!'));
+  // fs.stat('file1');
+  // fs.truncate('file1', 5);
+  // fs.stat('file1');
+
+  // fs.mkdir('/dir1');
+  // fs.ls();
+  // fs.mkdir('/dir1/dir2');
+  // fs.create('/dir1/file.txt');
+  // fs.ls('/dir1');
+  // fs.mkdir('/dir2');
+  // fs.symlink('/dir1', '/dir2/l1');
+  // fs.ls('/dir2/l1');
+  // fs.cd('/dir1');
+  // fs.ls();
+  // fs.cd('..');
+  // fs.ls();
+
   // fs.create('file.txt');
   // fs.stat('file.txt');
   // fs.ls();
