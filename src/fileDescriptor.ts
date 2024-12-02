@@ -7,7 +7,7 @@ export class FileDescriptor implements IFileDescriptor {
   size: number;
   blockMap: number[];
   nblock: number;
-  isOpen?: boolean;
+  openCount: number = 0;
   contents?: IDirectoryEntry[] | string;
 
   constructor(
